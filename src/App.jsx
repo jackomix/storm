@@ -66,6 +66,7 @@ const Modal = ({ title, message, type, onConfirm, onCancel }) => {
     }, []);
 
     return (
+      // Use a high z-index to appear above everything, including potential future overlays
       <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={onCancel}>
         <div className="bg-white p-6 rounded-lg max-w-sm w-full m-4 shadow-xl" onClick={e => e.stopPropagation()}>
           <h3 className="text-xl font-serif mb-3 text-zinc-800">{title}</h3>
@@ -157,7 +158,7 @@ const VideoIdeasApp = () => {
   const [sortBy, setSortBy] = useState('newest');
   const [manualAddItem, setManualAddItem] = useState({ show: false, pile: null, text: '' });
   const [modal, setModal] = useState(null);
-  const [showSettings, setShowSettings] = useState(false);
+  // No longer needed: const [showSettings, setShowSettings] = useState(false);
   const [streak, setStreak] = useState(0);
   const fileInputRef = useRef(null); // Ref for hidden file input
 
@@ -263,7 +264,6 @@ const VideoIdeasApp = () => {
       settings: settings,
       streak: streak,
       lastStreakDate: store.get(STORAGE_KEYS.LAST_STREAK_DATE),
-      // We don't back up daily stats or last date as they reset daily
     };
     const dataStr = JSON.stringify(backup, null, 2);
     const blob = new Blob([dataStr], { type: "application/json" });
@@ -291,62 +291,38 @@ const VideoIdeasApp = () => {
       try {
         const imported = JSON.parse(e.target.result);
         if (imported.data && imported.settings) {
-          // Basic validation (can be more thorough)
           if (typeof imported.data.concepts === 'object' && typeof imported.settings.placeholder === 'string') {
-            
             showConfirm("Confirm Import", "Importing will overwrite your current data. Are you sure?", () => {
                 setData(imported.data);
                 setSettings(imported.settings);
                 setStreak(imported.streak || 0);
                 store.set(STORAGE_KEYS.STREAK, imported.streak || 0);
                 store.set(STORAGE_KEYS.LAST_STREAK_DATE, imported.lastStreakDate || null);
-                
-                // Clear potentially conflicting state and reload
                 store.remove(STORAGE_KEYS.CURRENT_TASK);
                 store.remove(STORAGE_KEYS.DAILY_STATS);
                 store.remove(STORAGE_KEYS.LAST_DATE);
                 showAlert("Import Successful", "Data imported successfully. The app will now reload.");
-                setTimeout(() => window.location.reload(), 1500); // Reload after showing alert
+                setTimeout(() => window.location.reload(), 1500); 
             });
-
-          } else {
-            throw new Error("Invalid backup file structure.");
-          }
-        } else {
-          throw new Error("Missing 'data' or 'settings' in backup file.");
-        }
+          } else { throw new Error("Invalid backup file structure."); }
+        } else { throw new Error("Missing 'data' or 'settings' in backup file."); }
       } catch (error) {
         console.error("Import failed:", error);
         showAlert("Import Failed", `Could not import backup: ${error.message}`);
-      } finally {
-         // Reset file input value to allow re-importing the same file
-         if (fileInputRef.current) fileInputRef.current.value = "";
-      }
+      } finally { if (fileInputRef.current) fileInputRef.current.value = ""; }
     };
-    reader.onerror = () => {
-        showAlert("Import Failed", "Could not read the selected file.");
-        if (fileInputRef.current) fileInputRef.current.value = "";
-    };
+    reader.onerror = () => { showAlert("Import Failed", "Could not read the selected file."); if (fileInputRef.current) fileInputRef.current.value = ""; };
     reader.readAsText(file);
   };
 
   const resetData = () => {
       showConfirm("Reset All Data?", "This is permanent and cannot be undone. Are you absolutely sure?", () => {
-        // Clear all relevant localStorage items
         Object.values(STORAGE_KEYS).forEach(key => store.remove(key));
-        
-        // Reset state
-        setData(INITIAL_DATA);
-        setSettings(DEFAULT_SETTINGS);
-        setStreak(0);
-        setTask(null);
-        setTaskItems([]);
-        setDailyDone(false);
-        setDailyStats(DEFAULT_DAILY_STATS);
-        setLastDate(new Date().toDateString()); // Set last date to today after reset
-        
+        setData(INITIAL_DATA); setSettings(DEFAULT_SETTINGS); setStreak(0);
+        setTask(null); setTaskItems([]); setDailyDone(false);
+        setDailyStats(DEFAULT_DAILY_STATS); setLastDate(new Date().toDateString()); 
         showAlert("Data Reset", "All your data has been reset. The app will now reload.");
-        setTimeout(() => window.location.reload(), 1500); // Reload for clean state
+        setTimeout(() => window.location.reload(), 1500); 
       });
   };
 
@@ -476,9 +452,20 @@ const VideoIdeasApp = () => {
             setTaskItems={setTaskItems}
             setView={setView}
             showConfirm={showConfirm}
-            setModal={setModal}
+            setModal={setModal} // Pass setModal for inline errors
             startTask={startTask}
             completeTask={completeTask}
+        />;
+    }
+    if(view==='settings') {
+        return <SettingsView 
+            settings={settings} 
+            setSettings={setSettings} 
+            toggleNotif={toggleNotif} 
+            setView={setView} 
+            backupData={backupData}
+            triggerImport={triggerImport}
+            resetData={resetData}
         />;
     }
     if(['concepts','prompts','ideas','starred'].includes(view)){
@@ -524,15 +511,7 @@ const VideoIdeasApp = () => {
         style={{ display: 'none' }} 
       />
       {modal && <Modal {...modal} onCancel={() => setModal(null)} onConfirm={() => { if(modal.onConfirm) modal.onConfirm(); setModal(null); }} />}
-      {showSettings && <SettingsModal 
-          settings={settings} 
-          setSettings={setSettings} 
-          toggleNotif={toggleNotif} 
-          onClose={() => setShowSettings(false)} 
-          backupData={backupData}
-          triggerImport={triggerImport}
-          resetData={resetData}
-        />}
+      {/* Settings Modal is replaced by SettingsView */}
       {manualAddItem.show && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setManualAddItem({show: false, pile: null, text: ''})}>
             <div className="bg-white p-6 rounded-xl max-w-lg w-full m-4 shadow-2xl" onClick={e => e.stopPropagation()}>
@@ -555,7 +534,15 @@ const VideoIdeasApp = () => {
         </div>
       )}
       {renderView()}
-      <IconButton onClick={() => setShowSettings(true)} title="Settings" className="fixed bottom-4 right-4 sm:bottom-6 sm:right-6 !bg-zinc-800 !text-white hover:!bg-zinc-700 shadow-lg"><Settings size={20} /></IconButton>
+      {/* Conditionally render settings button only on home */}
+      {view === 'home' && (
+          <IconButton 
+            onClick={() => setView('settings')} 
+            title="Settings" 
+            className="fixed bottom-4 right-4 sm:bottom-6 sm:right-6 !bg-zinc-800 !text-white hover:!bg-zinc-700 shadow-lg">
+                <Settings size={20} />
+          </IconButton>
+      )}
       <style>{`
         .progress-bar-container {
             height: 0.75rem; /* h-3 */
@@ -623,7 +610,8 @@ const HomeView = ({ data, dailyStats, setView, dailyDone, startTask, streak, get
             ...data.prompts.map(item => ({ ...item, pile: 'prompts' })),
             ...data.ideas.map(item => ({ ...item, pile: 'ideas' })),
         ];
-        return allItems.sort(() => 0.5 - Math.random());
+        // Only include items if there are any, otherwise return empty to avoid errors
+        return allItems.length > 0 ? allItems.sort(() => 0.5 - Math.random()) : [];
     }, [data]);
 
     const getStreakDisplay = () => {
@@ -697,7 +685,7 @@ const HomeView = ({ data, dailyStats, setView, dailyDone, startTask, streak, get
     return (
         <div className="p-6 max-w-3xl mx-auto">
           {getStreakDisplay()}
-          <Marquee items={marqueeItems} getPromptText={getPromptText} />
+          {marqueeItems.length > 0 && <Marquee items={marqueeItems} getPromptText={getPromptText} />}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
             <StatCard pileKey="concepts" count={data.concepts.length} dailyCount={dailyStats.concepts} onClick={()=>setView('concepts')}/>
             <StatCard pileKey="prompts" count={data.prompts.length} dailyCount={dailyStats.prompts} onClick={()=>setView('prompts')}/>
@@ -711,21 +699,33 @@ const HomeView = ({ data, dailyStats, setView, dailyDone, startTask, streak, get
 
 const TaskView = ({ task, taskItems, settings, data, taskInput, setTaskInput, setTaskItems, setView, showConfirm, setModal, startTask, completeTask }) => {
     const isGoalMet = task && taskItems.length >= task.count;
+    const [taskError, setTaskError] = useState(''); // State for inline error messages
+
     const addTaskItem = () => {
+        setTaskError(''); // Clear previous error
         const trimmedInput = taskInput.trim();
         if (!trimmedInput) return;
 
         if (task.pile === 'prompts' && !trimmedInput.includes(settings.placeholder)) {
-            return setModal({ type: 'alert', title: 'Missing Placeholder', message: `Prompts must include your placeholder: "${settings.placeholder}"` });
+            setTaskError(`Prompts must include your placeholder: "${settings.placeholder}"`);
+            return;
         }
         
         const isDuplicateInData = data[task.pile].some(item => item.text.toLowerCase() === trimmedInput.toLowerCase());
         const isDuplicateInTask = taskItems.some(item => item.text.toLowerCase() === trimmedInput.toLowerCase());
         if (isDuplicateInData || isDuplicateInTask) {
-            return setModal({ type: 'alert', title: 'Duplicate Item', message: 'This item already exists.' });
+             setTaskError('This item already exists.');
+            return;
         }
 
-        setTaskItems(prev => [...prev, { text: trimmedInput, created: new Date().toISOString() }]); setTaskInput('');
+        setTaskItems(prev => [...prev, { text: trimmedInput, created: new Date().toISOString() }]); 
+        setTaskInput('');
+    };
+    
+    // Clear error when input changes
+    const handleInputChange = (e) => {
+        setTaskInput(e.target.value);
+        if (taskError) setTaskError('');
     };
     
     const percentage = useMemo(() => Math.min(100, (taskItems.length / task.count) * 100), [taskItems.length, task.count]);
@@ -741,10 +741,17 @@ const TaskView = ({ task, taskItems, settings, data, taskInput, setTaskInput, se
         <AnimatedProgressBar percentage={percentage} />
         <div className="bg-white p-4 rounded-xl border border-zinc-200 shadow-md mb-6">
           <div className="flex gap-2 mb-2">
-            <input type="text" value={taskInput} onChange={e=>setTaskInput(e.target.value)} onKeyPress={e=>e.key==='Enter'&&addTaskItem()} placeholder={`Enter new ${task.pile.slice(0,-1)}...`} className="flex-1 p-3 border border-zinc-300 rounded-lg bg-stone-50 focus:outline-none focus:ring-2 focus:ring-blue-500" autoFocus/>
+            <input 
+                type="text" 
+                value={taskInput} 
+                onChange={handleInputChange} // Use handler to clear error
+                onKeyPress={e=>e.key==='Enter'&&addTaskItem()} 
+                placeholder={`Enter new ${task.pile.slice(0,-1)}...`} 
+                className="flex-1 p-3 border border-zinc-300 rounded-lg bg-stone-50 focus:outline-none focus:ring-2 focus:ring-blue-500" autoFocus/>
             {task.pile==='prompts'&&<button onClick={()=>setTaskInput(p=>p+settings.placeholder)} className="px-3 py-2 bg-purple-500 text-white rounded-lg hover:bg-purple-600 text-sm font-mono shadow-sm">{settings.placeholder}</button>}
             <Button onClick={addTaskItem} disabled={!taskInput.trim()}><Plus size={20}/></Button>
           </div>
+          {taskError && <p className="text-red-600 text-sm mt-1">{taskError}</p>} 
           {isGoalMet && <Button variant="success" onClick={completeTask} className="w-full mt-3 text-lg animate-bounce">✨ Save & Complete Task ✨</Button>}
         </div>
         <div className="space-y-3">
@@ -754,10 +761,58 @@ const TaskView = ({ task, taskItems, settings, data, taskInput, setTaskInput, se
     );
 };
   
-const PileManager=({pile,items,view,sortBy,setSortBy,setManualAddItem,editing,setEditing,setData,showConfirm,getPromptText,settings,isToday})=>{const config=PILE_CONFIG[pile==='ideas'&&view==='starred'?'starred':pile];const showStar=pile==='ideas';const saveEdit=()=>{if(!editing||!editing.text.trim())return setEditing(null);const{item,text}=editing;const modifiedItem={...item,text:text.trim(),modified:new Date().toISOString()};if(pile==='prompts')modifiedItem.rawText=text.trim().replace(new RegExp(settings.placeholder,'g'),'{PLACEHOLDER}');setData(prev=>({...prev,[pile]:prev[pile].map(i=>i.id===item.id?modifiedItem:i)}));setEditing(null)};const exportPile=()=>{const text=items.map(i=>pile==='prompts'?getPromptText(i):i.text).join('\n');const blob=new Blob([text],{type:'text/plain'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=`${config.name.replace(' ','-').toLowerCase()}-${new Date().toISOString().split('T')[0]}.txt`;document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url)};return(<div className="p-4"><div className="flex justify-between items-center mb-6 border-b pb-3 border-zinc-200"><h2 className="text-2xl font-serif text-zinc-800 flex items-center gap-2"><config.icon size={24} className={config.classes.text}/> {config.name} ({items.length})</h2><div className="flex gap-2 items-center"><select value={sortBy} onChange={e=>setSortBy(e.target.value)} className="p-2 border border-zinc-300 rounded-lg text-sm bg-white focus:ring-blue-500 focus:border-blue-500"><option value="newest">Newest First</option><option value="oldest">Oldest First</option><option value="modified">Recently Modified</option></select>{view!=='starred'&&<Button onClick={()=>setManualAddItem({show:true,pile,text:''})}><Plus size={18}/></Button>}<Button variant="success" onClick={exportPile}><Download size={18}/></Button></div></div><div className="space-y-4">{items.sort((a,b)=>{if(sortBy==='oldest')return new Date(a.created)-new Date(b.created);if(sortBy==='modified')return new Date(b.modified)-new Date(a.modified);return new Date(b.created)-new Date(a.created)}).map(item=>(<div key={item.id} className={`bg-white p-4 rounded-lg border shadow-sm ${isToday(item.created)?'border-amber-400 bg-amber-50/30':'border-zinc-200'}`}>{editing?.item.id===item.id?(<div className="flex flex-col gap-2"><input type="text" value={editing.text} onChange={e=>setEditing({...editing,text:e.target.value})} onKeyPress={e=>e.key==='Enter'&&saveEdit()} className="flex-1 p-3 border border-zinc-300 rounded-lg" autoFocus/><div className='flex justify-end gap-2'><Button variant="success" onClick={saveEdit}><Check size={18}/> Save</Button><Button variant="secondary" onClick={()=>setEditing(null)}><X size={18}/> Cancel</Button></div></div>):(<>
-<div className="flex justify-between items-start mb-2"><p className="flex-1 text-zinc-700 break-words pr-4" dangerouslySetInnerHTML={{__html:pile==='prompts'?getPromptText(item,settings.placeholder).replace(new RegExp(settings.placeholder,'g'),`<span class="inline-block bg-purple-100 text-purple-700 px-1 rounded-sm font-mono text-sm">${settings.placeholder}</span>`):item.text}}/><div className="flex gap-2 min-w-[70px]">{showStar&&<button onClick={()=>setData(p=>({...p,ideas:p.ideas.map(i=>i.id===item.id?{...i,starred:!i.starred,modified:new Date().toISOString()}:i)}))} className={`${item.starred?'text-amber-500':'text-zinc-300 hover:text-amber-400'}`}><Star size={18} fill={item.starred?'currentColor':'none'}/></button>}<button onClick={()=>setEditing({item,text:pile==='prompts'?getPromptText(item,settings.placeholder):item.text})} className="text-blue-500 hover:text-blue-600"><Edit2 size={18}/></button><button onClick={()=>showConfirm('Delete Item?','This is permanent.',()=>setData(prev=>({...prev,[pile]:prev[pile].filter(i=>i.id!==item.id)})))} className="text-red-500 hover:text-red-600"><Trash2 size={18}/></button></div></div><p className="text-xs text-zinc-500">Created: {new Date(item.created).toLocaleString()}</p></>)}</div>))}{items.length===0&&<p className="text-zinc-500 text-center py-12 font-serif italic">No {config.name.toLowerCase()} yet.</p>}</div></div>)};
+const PileManager=({pile,items,view,sortBy,setSortBy,setManualAddItem,editing,setEditing,setData,showConfirm,getPromptText,settings,isToday})=>{
+    const config=PILE_CONFIG[pile==='ideas'&&view==='starred'?'starred':pile];
+    const showStar=pile==='ideas';
+    const saveEdit=()=>{if(!editing||!editing.text.trim())return setEditing(null);const{item,text}=editing;const modifiedItem={...item,text:text.trim(),modified:new Date().toISOString()};if(pile==='prompts')modifiedItem.rawText=text.trim().replace(new RegExp(settings.placeholder,'g'),'{PLACEHOLDER}');setData(prev=>({...prev,[pile]:prev[pile].map(i=>i.id===item.id?modifiedItem:i)}));setEditing(null)};
+    const exportPile=()=>{const text=items.map(i=>pile==='prompts'?getPromptText(i):i.text).join('\n');const blob=new Blob([text],{type:'text/plain'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=`${config.name.replace(' ','-').toLowerCase()}-${new Date().toISOString().split('T')[0]}.txt`;document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url)};
+    return(
+    <div className="p-4">
+        {/* Responsive Header */}
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-6 border-b pb-3 border-zinc-200 gap-2">
+            <h2 className="text-xl sm:text-2xl font-serif text-zinc-800 flex items-center gap-2"><config.icon size={24} className={config.classes.text}/> {config.name} ({items.length})</h2>
+            <div className="flex gap-2 items-center justify-end w-full sm:w-auto">
+                <select value={sortBy} onChange={e=>setSortBy(e.target.value)} className="p-2 border border-zinc-300 rounded-lg text-sm bg-white focus:ring-blue-500 focus:border-blue-500 flex-grow sm:flex-grow-0">
+                    <option value="newest">Newest</option>
+                    <option value="oldest">Oldest</option>
+                    <option value="modified">Modified</option>
+                </select>
+                {view!=='starred'&&<Button onClick={()=>setManualAddItem({show:true,pile,text:''})} className="!px-2 sm:!px-4"><Plus size={18}/></Button>}
+                <Button variant="success" onClick={exportPile} className="!px-2 sm:!px-4"><Download size={18}/></Button>
+            </div>
+        </div>
+        <div className="space-y-4">
+            {items.sort((a,b)=>{if(sortBy==='oldest')return new Date(a.created)-new Date(b.created);if(sortBy==='modified')return new Date(b.modified)-new Date(a.modified);return new Date(b.created)-new Date(a.created)}).map(item=>(
+                <div key={item.id} className={`bg-white p-4 rounded-lg border shadow-sm ${isToday(item.created)?'border-amber-400 bg-amber-50/30':'border-zinc-200'}`}>
+                    {editing?.item.id===item.id?(
+                        <div className="flex flex-col gap-2">
+                            <input type="text" value={editing.text} onChange={e=>setEditing({...editing,text:e.target.value})} onKeyPress={e=>e.key==='Enter'&&saveEdit()} className="flex-1 p-3 border border-zinc-300 rounded-lg" autoFocus/>
+                            <div className='flex justify-end gap-2'>
+                                <Button variant="success" onClick={saveEdit}><Check size={18}/> Save</Button>
+                                <Button variant="secondary" onClick={()=>setEditing(null)}><X size={18}/> Cancel</Button>
+                            </div>
+                        </div>
+                    ):(<>
+                        <div className="flex justify-between items-start mb-2">
+                            <p className="flex-1 text-zinc-700 break-words pr-4" dangerouslySetInnerHTML={{__html:pile==='prompts'?getPromptText(item,settings.placeholder).replace(new RegExp(settings.placeholder,'g'),`<span class="inline-block bg-purple-100 text-purple-700 px-1 rounded-sm font-mono text-sm">${settings.placeholder}</span>`):item.text}}/>
+                            {/* Responsive Buttons */}
+                            <div className="flex gap-2 sm:gap-1 flex-shrink-0">
+                                {showStar&&<button onClick={()=>setData(p=>({...p,ideas:p.ideas.map(i=>i.id===item.id?{...i,starred:!i.starred,modified:new Date().toISOString()}:i)}))} className={`${item.starred?'text-amber-500':'text-zinc-300 hover:text-amber-400'} p-2 sm:p-1`}><Star size={18} fill={item.starred?'currentColor':'none'}/></button>}
+                                <button onClick={()=>setEditing({item,text:pile==='prompts'?getPromptText(item,settings.placeholder):item.text})} className="text-blue-500 hover:text-blue-600 p-2 sm:p-1"><Edit2 size={18}/></button>
+                                <button onClick={()=>showConfirm('Delete Item?','This is permanent.',()=>setData(prev=>({...prev,[pile]:prev[pile].filter(i=>i.id!==item.id)})))} className="text-red-500 hover:text-red-600 p-2 sm:p-1"><Trash2 size={18}/></button>
+                            </div>
+                        </div>
+                        <p className="text-xs text-zinc-500">Created: {new Date(item.created).toLocaleString()}</p>
+                    </>)}
+                </div>
+            ))}
+            {items.length===0&&<p className="text-zinc-500 text-center py-12 font-serif italic">No {config.name.toLowerCase()} yet.</p>}
+        </div>
+    </div>
+    )
+};
   
-const SettingsModal=({onClose,settings,setSettings,toggleNotif, backupData, triggerImport, resetData})=>{
+const SettingsView=({setView, settings,setSettings,toggleNotif, backupData, triggerImport, resetData})=>{
     const handleRangeChange=(pile,index,value)=>{
         const newRanges={...settings.taskRanges};
         const currentRange=newRanges[pile];
@@ -767,9 +822,10 @@ const SettingsModal=({onClose,settings,setSettings,toggleNotif, backupData, trig
         setSettings(prev=>({...prev,taskRanges:newRanges}))
     };
     return(
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={onClose}>
-        <div className="bg-white p-6 rounded-xl max-w-md w-full m-4 shadow-2xl" onClick={e=>e.stopPropagation()}>
-            <h2 className="text-xl font-serif mb-5 border-b pb-2">App Settings</h2>
+    <div className="p-6 max-w-xl mx-auto">
+        <button onClick={()=>setView('home')} className="mb-4 text-blue-600 hover:text-blue-700 flex items-center gap-1 text-base font-medium">← Back to Home</button>
+        <div className="bg-white p-6 rounded-xl shadow-md border border-zinc-200">
+            <h2 className="text-2xl font-serif mb-6 border-b pb-3">App Settings</h2>
             {/* General Settings */}
             <div className="mb-4 bg-zinc-50 p-3 rounded-lg border">
                 <label className="flex items-center gap-3 cursor-pointer"><input type="checkbox" checked={settings.notificationsEnabled} onChange={toggleNotif} className="w-5 h-5 text-blue-600 rounded-md focus:ring-blue-500"/><span className='text-zinc-700'>Enable Notifications</span></label>
@@ -803,8 +859,6 @@ const SettingsModal=({onClose,settings,setSettings,toggleNotif, backupData, trig
                      <p className="text-xs text-zinc-500 mt-1 text-center">Warning: This will permanently delete everything.</p>
                  </div>
             </div>
-
-            <Button onClick={onClose} className="w-full mt-6">Close</Button>
         </div>
     </div>
     )
