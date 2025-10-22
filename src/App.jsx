@@ -1,5 +1,8 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { Plus, Trash2, Edit2, Star, Download, X, Check, Sparkles, Zap, Settings, Dice6, List, LayoutList, Lightbulb, Flame } from 'lucide-react';
+import { Plus, Trash2, Edit2, Star, Download, X, Check, Sparkles, Zap, Settings, Dice6, List, LayoutList, Lightbulb, Flame, Upload, RotateCcw } from 'lucide-react';
+
+// --- App Requires party-js ---
+// <script src="https://cdn.jsdelivr.net/npm/party-js@latest/bundle/party.min.js"></script>
 
 // --- 1. Centralized Constants & Config ---
 const PILE_CONFIG = {
@@ -29,6 +32,7 @@ const STREAK_MILESTONES = [7, 30, 100, 365, 500, 730, 1000];
 const WORD_LIST = ["Technology", "Creativity", "Future", "History", "Science", "Art", "Productivity", "Health", "Finance", "Nature", "Space", "Psychology"];
 const DEFAULT_SETTINGS = { notificationsEnabled: false, placeholder: 'XX', taskRanges: { concepts: [5, 8], prompts: [2, 5], ideas: [2, 6] } };
 const DEFAULT_DAILY_STATS = { concepts: 0, prompts: 0, ideas: 0, tasks: 0 };
+const INITIAL_DATA = { concepts: [], prompts: [], ideas: [] };
 
 // --- 2. Storage Utility ---
 const store = {
@@ -55,6 +59,7 @@ const StatCard=({pileKey,count,dailyCount,onClick})=>{const config=PILE_CONFIG[p
 const Modal = ({ title, message, type, onConfirm, onCancel }) => {
     const confirmButtonRef = useRef(null);
     useEffect(() => {
+      // Focus the confirm/OK button when the modal appears for keyboard accessibility
       if (confirmButtonRef.current) {
         confirmButtonRef.current.focus();
       }
@@ -79,10 +84,10 @@ const Modal = ({ title, message, type, onConfirm, onCancel }) => {
 const AnimatedProgressBar = React.memo(({ percentage }) => {
     const progressStyle = useMemo(() => {
         let colorGradient;
-        if (percentage >= 100) colorGradient = 'linear-gradient(to right, #34d399, #22d3ee)';
-        else if (percentage > 66) colorGradient = 'linear-gradient(to right, #2dd4bf, #10b981)';
-        else if (percentage > 33) colorGradient = 'linear-gradient(to right, #facc15, #f97316)';
-        else colorGradient = 'linear-gradient(to right, #ef4444, #f59e0b)';
+        if (percentage >= 100) colorGradient = 'linear-gradient(to right, #34d399, #22d3ee)'; // green-400 to cyan-400
+        else if (percentage > 66) colorGradient = 'linear-gradient(to right, #2dd4bf, #10b981)'; // teal-400 to emerald-500
+        else if (percentage > 33) colorGradient = 'linear-gradient(to right, #facc15, #f97316)'; // yellow-400 to orange-500
+        else colorGradient = 'linear-gradient(to right, #ef4444, #f59e0b)'; // red-500 to amber-500
         
         return {
             width: `${percentage}%`,
@@ -114,14 +119,16 @@ const Marquee = ({ items, getPromptText }) => {
         return (
             <div className={`inline-flex items-center ${config.classes.bg} border ${config.classes.borderInner} px-3 py-1 rounded-full text-sm mx-2 flex-shrink-0`}>
                 <config.icon size={14} className={`${config.classes.text} mr-2`} />
-                <p className="text-zinc-800" dangerouslySetInnerHTML={{ __html: textContent }} />
+                <p className="text-zinc-800 truncate max-w-[200px]" dangerouslySetInnerHTML={{ __html: textContent }} />
             </div>
         );
     };
 
     if (!items || items.length === 0) return null;
 
-    const marqueeItems = [...items, ...items];
+    // Shuffle and take a subset for performance if needed, or just shuffle
+    const shuffledItems = useMemo(() => [...items].sort(() => 0.5 - Math.random()), [items]);
+    const marqueeItems = [...shuffledItems, ...shuffledItems]; // Duplicate for seamless scroll
 
     return (
         <div className="marquee-container">
@@ -137,7 +144,7 @@ const Marquee = ({ items, getPromptText }) => {
 // --- Main App Component ---
 const VideoIdeasApp = () => {
   // --- State Management ---
-  const [data, setData] = useState(() => store.get(STORAGE_KEYS.DATA, { concepts: [], prompts: [], ideas: [] }));
+  const [data, setData] = useState(() => store.get(STORAGE_KEYS.DATA, INITIAL_DATA));
   const [settings, setSettings] = useState(() => store.get(STORAGE_KEYS.SETTINGS, DEFAULT_SETTINGS));
   const [view, setView] = useState('home');
   const [task, setTask] = useState(() => store.get(STORAGE_KEYS.CURRENT_TASK) || null);
@@ -152,6 +159,7 @@ const VideoIdeasApp = () => {
   const [modal, setModal] = useState(null);
   const [showSettings, setShowSettings] = useState(false);
   const [streak, setStreak] = useState(0);
+  const fileInputRef = useRef(null); // Ref for hidden file input
 
   // --- Persistence & Initialization ---
   useEffect(() => { store.set(STORAGE_KEYS.DATA, data); }, [data]);
@@ -192,8 +200,9 @@ const VideoIdeasApp = () => {
 
     if (store.get(STORAGE_KEYS.CURRENT_TASK)) setView('task');
 
-    return () => {
-      document.body.removeChild(script);
+    return () => { // Cleanup script
+       const partyScript = document.querySelector('script[src="https://cdn.jsdelivr.net/npm/party-js@latest/bundle/party.min.js"]');
+       if (partyScript) document.body.removeChild(partyScript);
     };
   }, []);
 
@@ -220,6 +229,7 @@ const VideoIdeasApp = () => {
 
   // --- Helpers ---
   const showConfirm=(t,m,c)=>setModal({type:'confirm',title:t,message:m,onConfirm:c});
+  const showAlert=(t,m)=>setModal({type:'alert',title:t,message:m}); // Added showAlert helper
   const getPromptText=(p,h=settings.placeholder)=>(p.rawText||p.text).replace(/{PLACEHOLDER}/g,h);
   const isToday=d=>new Date(d).toDateString()===new Date().toDateString();
   const createItem=(p,t)=>{const ts=new Date().toISOString();return{id:Date.now()+Math.random(),text:t.trim(),...(p==='prompts'&&{rawText:t.trim().replace(new RegExp(settings.placeholder,'g'),'{PLACEHOLDER}')}),created:ts,modified:ts,starred:false}};
@@ -244,6 +254,100 @@ const VideoIdeasApp = () => {
 
     setData(prev => ({ ...prev, [pile]: [...prev[pile], createItem(pile, trimmedText)] }));
     setManualAddItem({ show: false, pile: null, text: '' });
+  };
+
+  // --- Data Management Functions ---
+  const backupData = () => {
+    const backup = {
+      data: data,
+      settings: settings,
+      streak: streak,
+      lastStreakDate: store.get(STORAGE_KEYS.LAST_STREAK_DATE),
+      // We don't back up daily stats or last date as they reset daily
+    };
+    const dataStr = JSON.stringify(backup, null, 2);
+    const blob = new Blob([dataStr], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `video-ideas-backup-${new Date().toISOString().split('T')[0]}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    showAlert("Backup Successful", "Your data has been downloaded.");
+  };
+
+  const triggerImport = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleImport = (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const imported = JSON.parse(e.target.result);
+        if (imported.data && imported.settings) {
+          // Basic validation (can be more thorough)
+          if (typeof imported.data.concepts === 'object' && typeof imported.settings.placeholder === 'string') {
+            
+            showConfirm("Confirm Import", "Importing will overwrite your current data. Are you sure?", () => {
+                setData(imported.data);
+                setSettings(imported.settings);
+                setStreak(imported.streak || 0);
+                store.set(STORAGE_KEYS.STREAK, imported.streak || 0);
+                store.set(STORAGE_KEYS.LAST_STREAK_DATE, imported.lastStreakDate || null);
+                
+                // Clear potentially conflicting state and reload
+                store.remove(STORAGE_KEYS.CURRENT_TASK);
+                store.remove(STORAGE_KEYS.DAILY_STATS);
+                store.remove(STORAGE_KEYS.LAST_DATE);
+                showAlert("Import Successful", "Data imported successfully. The app will now reload.");
+                setTimeout(() => window.location.reload(), 1500); // Reload after showing alert
+            });
+
+          } else {
+            throw new Error("Invalid backup file structure.");
+          }
+        } else {
+          throw new Error("Missing 'data' or 'settings' in backup file.");
+        }
+      } catch (error) {
+        console.error("Import failed:", error);
+        showAlert("Import Failed", `Could not import backup: ${error.message}`);
+      } finally {
+         // Reset file input value to allow re-importing the same file
+         if (fileInputRef.current) fileInputRef.current.value = "";
+      }
+    };
+    reader.onerror = () => {
+        showAlert("Import Failed", "Could not read the selected file.");
+        if (fileInputRef.current) fileInputRef.current.value = "";
+    };
+    reader.readAsText(file);
+  };
+
+  const resetData = () => {
+      showConfirm("Reset All Data?", "This is permanent and cannot be undone. Are you absolutely sure?", () => {
+        // Clear all relevant localStorage items
+        Object.values(STORAGE_KEYS).forEach(key => store.remove(key));
+        
+        // Reset state
+        setData(INITIAL_DATA);
+        setSettings(DEFAULT_SETTINGS);
+        setStreak(0);
+        setTask(null);
+        setTaskItems([]);
+        setDailyDone(false);
+        setDailyStats(DEFAULT_DAILY_STATS);
+        setLastDate(new Date().toDateString()); // Set last date to today after reset
+        
+        showAlert("Data Reset", "All your data has been reset. The app will now reload.");
+        setTimeout(() => window.location.reload(), 1500); // Reload for clean state
+      });
   };
 
   // --- Task Engine ---
@@ -412,8 +516,23 @@ const VideoIdeasApp = () => {
 
   return (
     <div className="min-h-screen bg-stone-100 font-sans">
+      <input 
+        type="file" 
+        ref={fileInputRef} 
+        onChange={handleImport} 
+        accept=".json" 
+        style={{ display: 'none' }} 
+      />
       {modal && <Modal {...modal} onCancel={() => setModal(null)} onConfirm={() => { if(modal.onConfirm) modal.onConfirm(); setModal(null); }} />}
-      {showSettings && <SettingsModal settings={settings} setSettings={setSettings} toggleNotif={toggleNotif} onClose={() => setShowSettings(false)} />}
+      {showSettings && <SettingsModal 
+          settings={settings} 
+          setSettings={setSettings} 
+          toggleNotif={toggleNotif} 
+          onClose={() => setShowSettings(false)} 
+          backupData={backupData}
+          triggerImport={triggerImport}
+          resetData={resetData}
+        />}
       {manualAddItem.show && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setManualAddItem({show: false, pile: null, text: ''})}>
             <div className="bg-white p-6 rounded-xl max-w-lg w-full m-4 shadow-2xl" onClick={e => e.stopPropagation()}>
@@ -511,16 +630,18 @@ const HomeView = ({ data, dailyStats, setView, dailyDone, startTask, streak, get
         if (streak > 0) {
             let nextMilestone = STREAK_MILESTONES.find(m => m > streak);
             if (!nextMilestone) {
-                nextMilestone = (Math.floor(streak / 500) + 1) * 500;
+                // If past all defined milestones, set the next one dynamically (e.g., every 500 days)
+                nextMilestone = (Math.floor(streak / 500) + 1) * 500; 
             }
             const prevMilestone = [...STREAK_MILESTONES].reverse().find(m => m <= streak) || 0;
             const milestoneTotal = nextMilestone - prevMilestone;
             const milestoneProgress = streak - prevMilestone;
-            const percentage = (milestoneProgress / milestoneTotal) * 100;
+            const percentage = Math.max(0, Math.min(100, (milestoneProgress / milestoneTotal) * 100)); // Ensure percentage is between 0 and 100
             const daysUntilNext = nextMilestone - streak;
 
             const getEncouragement = () => {
                 const ratio = milestoneProgress / milestoneTotal;
+                if (ratio >= 1) return "Milestone achieved!"; // Should theoretically not happen with find logic, but good failsafe
                 if (ratio > 0.9) return "Almost there!";
                 if (ratio > 0.75) return "So close!";
                 if (ratio > 0.5) return "Over halfway!";
@@ -546,7 +667,7 @@ const HomeView = ({ data, dailyStats, setView, dailyDone, startTask, streak, get
                             <span>{nextMilestone} days</span>
                         </div>
                         <p className="text-center text-sm text-zinc-600 mt-2">
-                            <span className="font-bold">{getEncouragement()}</span> {daysUntilNext} days until your next milestone!
+                            <span className="font-bold">{getEncouragement()}</span> {daysUntilNext} day{daysUntilNext !== 1 ? 's' : ''} until your next milestone!
                         </p>
                     </div>
                 </div>
@@ -636,7 +757,58 @@ const TaskView = ({ task, taskItems, settings, data, taskInput, setTaskInput, se
 const PileManager=({pile,items,view,sortBy,setSortBy,setManualAddItem,editing,setEditing,setData,showConfirm,getPromptText,settings,isToday})=>{const config=PILE_CONFIG[pile==='ideas'&&view==='starred'?'starred':pile];const showStar=pile==='ideas';const saveEdit=()=>{if(!editing||!editing.text.trim())return setEditing(null);const{item,text}=editing;const modifiedItem={...item,text:text.trim(),modified:new Date().toISOString()};if(pile==='prompts')modifiedItem.rawText=text.trim().replace(new RegExp(settings.placeholder,'g'),'{PLACEHOLDER}');setData(prev=>({...prev,[pile]:prev[pile].map(i=>i.id===item.id?modifiedItem:i)}));setEditing(null)};const exportPile=()=>{const text=items.map(i=>pile==='prompts'?getPromptText(i):i.text).join('\n');const blob=new Blob([text],{type:'text/plain'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=`${config.name.replace(' ','-').toLowerCase()}-${new Date().toISOString().split('T')[0]}.txt`;document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url)};return(<div className="p-4"><div className="flex justify-between items-center mb-6 border-b pb-3 border-zinc-200"><h2 className="text-2xl font-serif text-zinc-800 flex items-center gap-2"><config.icon size={24} className={config.classes.text}/> {config.name} ({items.length})</h2><div className="flex gap-2 items-center"><select value={sortBy} onChange={e=>setSortBy(e.target.value)} className="p-2 border border-zinc-300 rounded-lg text-sm bg-white focus:ring-blue-500 focus:border-blue-500"><option value="newest">Newest First</option><option value="oldest">Oldest First</option><option value="modified">Recently Modified</option></select>{view!=='starred'&&<Button onClick={()=>setManualAddItem({show:true,pile,text:''})}><Plus size={18}/></Button>}<Button variant="success" onClick={exportPile}><Download size={18}/></Button></div></div><div className="space-y-4">{items.sort((a,b)=>{if(sortBy==='oldest')return new Date(a.created)-new Date(b.created);if(sortBy==='modified')return new Date(b.modified)-new Date(a.modified);return new Date(b.created)-new Date(a.created)}).map(item=>(<div key={item.id} className={`bg-white p-4 rounded-lg border shadow-sm ${isToday(item.created)?'border-amber-400 bg-amber-50/30':'border-zinc-200'}`}>{editing?.item.id===item.id?(<div className="flex flex-col gap-2"><input type="text" value={editing.text} onChange={e=>setEditing({...editing,text:e.target.value})} onKeyPress={e=>e.key==='Enter'&&saveEdit()} className="flex-1 p-3 border border-zinc-300 rounded-lg" autoFocus/><div className='flex justify-end gap-2'><Button variant="success" onClick={saveEdit}><Check size={18}/> Save</Button><Button variant="secondary" onClick={()=>setEditing(null)}><X size={18}/> Cancel</Button></div></div>):(<>
 <div className="flex justify-between items-start mb-2"><p className="flex-1 text-zinc-700 break-words pr-4" dangerouslySetInnerHTML={{__html:pile==='prompts'?getPromptText(item,settings.placeholder).replace(new RegExp(settings.placeholder,'g'),`<span class="inline-block bg-purple-100 text-purple-700 px-1 rounded-sm font-mono text-sm">${settings.placeholder}</span>`):item.text}}/><div className="flex gap-2 min-w-[70px]">{showStar&&<button onClick={()=>setData(p=>({...p,ideas:p.ideas.map(i=>i.id===item.id?{...i,starred:!i.starred,modified:new Date().toISOString()}:i)}))} className={`${item.starred?'text-amber-500':'text-zinc-300 hover:text-amber-400'}`}><Star size={18} fill={item.starred?'currentColor':'none'}/></button>}<button onClick={()=>setEditing({item,text:pile==='prompts'?getPromptText(item,settings.placeholder):item.text})} className="text-blue-500 hover:text-blue-600"><Edit2 size={18}/></button><button onClick={()=>showConfirm('Delete Item?','This is permanent.',()=>setData(prev=>({...prev,[pile]:prev[pile].filter(i=>i.id!==item.id)})))} className="text-red-500 hover:text-red-600"><Trash2 size={18}/></button></div></div><p className="text-xs text-zinc-500">Created: {new Date(item.created).toLocaleString()}</p></>)}</div>))}{items.length===0&&<p className="text-zinc-500 text-center py-12 font-serif italic">No {config.name.toLowerCase()} yet.</p>}</div></div>)};
   
-const SettingsModal=({onClose,settings,setSettings,toggleNotif})=>{const handleRangeChange=(pile,index,value)=>{const newRanges={...settings.taskRanges};const currentRange=newRanges[pile];const numValue=parseInt(value)||1;if(index===0){currentRange[0]=Math.max(1,Math.min(numValue,currentRange[1]))}else{currentRange[1]=Math.min(20,Math.max(numValue,currentRange[0]))}setSettings(prev=>({...prev,taskRanges:newRanges}))};return(<div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={onClose}><div className="bg-white p-6 rounded-xl max-w-md w-full m-4 shadow-2xl" onClick={e=>e.stopPropagation()}><h2 className="text-xl font-serif mb-5 border-b pb-2">App Settings</h2><div className="mb-4 bg-zinc-50 p-3 rounded-lg border"><label className="flex items-center gap-3 cursor-pointer"><input type="checkbox" checked={settings.notificationsEnabled} onChange={toggleNotif} className="w-5 h-5 text-blue-600 rounded-md focus:ring-blue-500"/><span className='text-zinc-700'>Enable Notifications</span></label><p className="text-xs text-zinc-500 mt-1 pl-8">Reminds you every 2 hours.</p></div><div className="mb-4 bg-zinc-50 p-3 rounded-lg border"><label className="block mb-2 text-sm font-medium text-zinc-700">Prompt Placeholder Text</label><input type="text" value={settings.placeholder} onChange={e=>setSettings(prev=>({...prev,placeholder:e.target.value.toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,5)}))} className="w-full p-2 border rounded-lg font-mono text-center text-lg focus:outline-none focus:ring-2 focus:ring-purple-500" maxLength={5}/><p className="text-xs text-zinc-500 mt-1">Max 5 chars, alphanumeric. Used in prompts.</p></div><div className="mb-4 bg-zinc-50 p-3 rounded-lg border"><label className="block mb-2 text-sm font-medium text-zinc-700">Daily Task Ranges (Min - Max)</label>{Object.keys(settings.taskRanges).map(pile=>(<div key={pile} className="flex items-center gap-2 mb-2"><span className="w-20 text-sm capitalize text-zinc-600">{pile}:</span><input type="number" min="1" max="20" value={settings.taskRanges[pile][0]} onChange={e=>handleRangeChange(pile,0,e.target.value)} className="w-16 p-1 border rounded-md text-sm text-center"/><span>to</span><input type="number" min="1" max="20" value={settings.taskRanges[pile][1]} onChange={e=>handleRangeChange(pile,1,e.target.value)} className="w-16 p-1 border rounded-md text-sm text-center"/></div>))}</div><Button onClick={onClose} className="w-full">Close</Button></div></div>)};
+const SettingsModal=({onClose,settings,setSettings,toggleNotif, backupData, triggerImport, resetData})=>{
+    const handleRangeChange=(pile,index,value)=>{
+        const newRanges={...settings.taskRanges};
+        const currentRange=newRanges[pile];
+        const numValue=parseInt(value)||1;
+        if(index===0){currentRange[0]=Math.max(1,Math.min(numValue,currentRange[1]))}
+        else{currentRange[1]=Math.min(20,Math.max(numValue,currentRange[0]))}
+        setSettings(prev=>({...prev,taskRanges:newRanges}))
+    };
+    return(
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={onClose}>
+        <div className="bg-white p-6 rounded-xl max-w-md w-full m-4 shadow-2xl" onClick={e=>e.stopPropagation()}>
+            <h2 className="text-xl font-serif mb-5 border-b pb-2">App Settings</h2>
+            {/* General Settings */}
+            <div className="mb-4 bg-zinc-50 p-3 rounded-lg border">
+                <label className="flex items-center gap-3 cursor-pointer"><input type="checkbox" checked={settings.notificationsEnabled} onChange={toggleNotif} className="w-5 h-5 text-blue-600 rounded-md focus:ring-blue-500"/><span className='text-zinc-700'>Enable Notifications</span></label>
+                <p className="text-xs text-zinc-500 mt-1 pl-8">Reminds you every 2 hours.</p>
+            </div>
+            <div className="mb-4 bg-zinc-50 p-3 rounded-lg border">
+                <label className="block mb-2 text-sm font-medium text-zinc-700">Prompt Placeholder Text</label>
+                <input type="text" value={settings.placeholder} onChange={e=>setSettings(prev=>({...prev,placeholder:e.target.value.toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,5)}))} className="w-full p-2 border rounded-lg font-mono text-center text-lg focus:outline-none focus:ring-2 focus:ring-purple-500" maxLength={5}/>
+                <p className="text-xs text-zinc-500 mt-1">Max 5 chars, alphanumeric. Used in prompts.</p>
+            </div>
+            <div className="mb-4 bg-zinc-50 p-3 rounded-lg border">
+                <label className="block mb-2 text-sm font-medium text-zinc-700">Daily Task Ranges (Min - Max)</label>
+                {Object.keys(settings.taskRanges).map(pile=>(
+                    <div key={pile} className="flex items-center gap-2 mb-2">
+                        <span className="w-20 text-sm capitalize text-zinc-600">{pile}:</span>
+                        <input type="number" min="1" max="20" value={settings.taskRanges[pile][0]} onChange={e=>handleRangeChange(pile,0,e.target.value)} className="w-16 p-1 border rounded-md text-sm text-center"/>
+                        <span>to</span>
+                        <input type="number" min="1" max="20" value={settings.taskRanges[pile][1]} onChange={e=>handleRangeChange(pile,1,e.target.value)} className="w-16 p-1 border rounded-md text-sm text-center"/>
+                    </div>
+                ))}
+            </div>
+            {/* Data Management Section */}
+            <div className="mt-6 pt-4 border-t">
+                 <h3 className="text-lg font-medium text-zinc-700 mb-3">Data Management</h3>
+                 <div className="grid grid-cols-2 gap-3">
+                     <Button variant="secondary" onClick={backupData}><Download size={16} /> Backup Data</Button>
+                     <Button variant="secondary" onClick={triggerImport}><Upload size={16} /> Import Backup</Button>
+                 </div>
+                 <div className="mt-4">
+                     <Button variant="danger" className="w-full" onClick={resetData}><RotateCcw size={16} /> Reset All Data</Button>
+                     <p className="text-xs text-zinc-500 mt-1 text-center">Warning: This will permanently delete everything.</p>
+                 </div>
+            </div>
+
+            <Button onClick={onClose} className="w-full mt-6">Close</Button>
+        </div>
+    </div>
+    )
+};
 
 const TaskInstructions = React.memo(({ task, taskItems }) => {
     const KeywordText = ({ text }) => {
@@ -694,7 +866,8 @@ const TaskInstructions = React.memo(({ task, taskItems }) => {
                       if (part === '<prompt>') {
                           const prompt = itemQueues.prompt.shift();
                           const conceptsForPromptCount = (getPromptText(prompt).match(new RegExp(DEFAULT_SETTINGS.placeholder, 'gi')) || []).length;
-                          const concepts = task.selections.concepts.slice(0, conceptsForPromptCount);
+                          // Use the concepts specifically selected for this task, if available
+                          const concepts = task.selections?.concepts?.slice(0, conceptsForPromptCount) || [];
                           return <StyledPrompt key={i} prompt={prompt} concepts={concepts} />;
                       }
                       if (part === '<random_word>') return <StyledItem key={i} item={{ text: task.selections.randomWord }} pile="random" />;
