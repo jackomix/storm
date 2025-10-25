@@ -5,6 +5,7 @@ import { Plus, Trash2, Edit2, Star, Download, X, Check, Sparkles, Zap, Settings,
 // <script src="https://cdn.jsdelivr.net/npm/party-js@latest/bundle/party.min.js"></script>
 
 // --- 1. Centralized Constants & Config ---
+// ... (Pile Config, Storage Keys, Tasks, etc. remain the same) ...
 const PILE_CONFIG = {
   concepts: { name: 'Concepts', icon: List, classes: { text: 'text-red-600', border: 'hover:border-red-400', bg: 'bg-red-50', borderInner: 'border-red-200' } },
   prompts: { name: 'Prompts', icon: LayoutList, classes: { text: 'text-blue-600', border: 'hover:border-blue-400', bg: 'bg-blue-50', borderInner: 'border-blue-200' } },
@@ -147,9 +148,9 @@ const VideoIdeasApp = () => {
   // --- State Management ---
   const [data, setData] = useState(() => store.get(STORAGE_KEYS.DATA, INITIAL_DATA));
   const [settings, setSettings] = useState(() => store.get(STORAGE_KEYS.SETTINGS, DEFAULT_SETTINGS));
-  const [view, setView] = useState('home');
-  const [task, setTask] = useState(() => store.get(STORAGE_KEYS.CURRENT_TASK) || null);
-  const [taskItems, setTaskItems] = useState(() => store.get(STORAGE_KEYS.CURRENT_TASK)?.items || []);
+  const [view, setView] = useState('home'); // Default to home
+  const [task, setTask] = useState(null); // Initialize task as null
+  const [taskItems, setTaskItems] = useState([]); // Initialize task items as empty
   const [taskInput, setTaskInput] = useState('');
   const [editing, setEditing] = useState(null);
   const [dailyDone, setDailyDone] = useState(false);
@@ -165,12 +166,16 @@ const VideoIdeasApp = () => {
   // --- Persistence & Initialization ---
   useEffect(() => { store.set(STORAGE_KEYS.DATA, data); }, [data]);
   useEffect(() => { store.set(STORAGE_KEYS.SETTINGS, settings); }, [settings]);
+  
+  // Save task only when task state is actively set (not on initial load finding nothing)
   useEffect(() => {
-    if (task) store.set(STORAGE_KEYS.CURRENT_TASK, { ...task, items: taskItems });
-    else store.remove(STORAGE_KEYS.CURRENT_TASK);
+    if (task) { 
+      store.set(STORAGE_KEYS.CURRENT_TASK, { ...task, items: taskItems });
+    }
+    // No else block needed here, removal happens on pagehide/visibilitychange now
   }, [task, taskItems]);
 
-  useEffect(() => { // Initial Load
+  useEffect(() => { // Initial Load - Handles PWA launch behavior
     const script = document.createElement('script');
     script.src = "https://cdn.jsdelivr.net/npm/party-js@latest/bundle/party.min.js";
     script.async = true;
@@ -179,62 +184,104 @@ const VideoIdeasApp = () => {
     const today = new Date().toDateString();
     const yesterday = new Date(Date.now() - 86400000).toDateString();
     
+    // Check daily task status
     const lastDay = store.get(STORAGE_KEYS.LAST_DATE);
     if (lastDay === today) {
       setDailyDone(true);
       setDailyStats(store.get(STORAGE_KEYS.DAILY_STATS, DEFAULT_DAILY_STATS));
     } else {
       setDailyDone(false); setDailyStats(DEFAULT_DAILY_STATS);
-      store.set(STORAGE_KEYS.LAST_DATE, today);
+      store.set(STORAGE_KEYS.LAST_DATE, today); // Set today as last active date
     }
     setLastDate(today);
 
+    // Check streak status
     const lastStreakDay = store.get(STORAGE_KEYS.LAST_STREAK_DATE);
     const currentStreak = store.get(STORAGE_KEYS.STREAK, 0);
 
     if (lastStreakDay === today || lastStreakDay === yesterday) {
         setStreak(currentStreak);
     } else {
+        // Reset streak if more than a day passed
         setStreak(0);
         store.set(STORAGE_KEYS.STREAK, 0);
+        // Don't remove LAST_STREAK_DATE here, let daily reset handle it
     }
 
-    if (store.get(STORAGE_KEYS.CURRENT_TASK)) setView('task');
+    // --- PWA Launch Logic ---
+    // Check if there is a saved task. If NOT, ensure view is 'home'.
+    // If there IS a saved task, it might be from a previous session.
+    // We let the 'pagehide' listener handle clearing it for *next* launch.
+    // For *this* launch, if we find a task, we load it, BUT this might be changed later if desired.
+    const savedTask = store.get(STORAGE_KEYS.CURRENT_TASK);
+    if (savedTask) {
+        setTask(savedTask);
+        setTaskItems(savedTask.items || []);
+        setView('task'); // Go to task if found
+    } else {
+        setView('home'); // Ensure home if no task saved
+    }
 
-    return () => { // Cleanup script
+    // --- Event listener to clear task on session end ---
+    const handleSessionEnd = () => {
+        // Clear the saved task when the page is hidden/closed
+        console.log("Page hidden/closed, clearing current task state.");
+        store.remove(STORAGE_KEYS.CURRENT_TASK);
+    };
+    
+    // Use 'visibilitychange' as 'pagehide' might not fire reliably on mobile PWAs when closed
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'hidden') {
+            handleSessionEnd();
+        }
+    });
+    // Add pagehide as a backup, though visibilitychange is often better for PWAs
+    window.addEventListener('pagehide', handleSessionEnd);
+
+
+    return () => { // Cleanup script and listeners
        const partyScript = document.querySelector('script[src="https://cdn.jsdelivr.net/npm/party-js@latest/bundle/party.min.js"]');
        if (partyScript) document.body.removeChild(partyScript);
+       document.removeEventListener('visibilitychange', handleSessionEnd);
+       window.removeEventListener('pagehide', handleSessionEnd);
     };
-  }, []);
+  }, []); // Run only once on mount
 
-  useEffect(() => { // Daily Reset
+  useEffect(() => { // Daily Reset Interval (for streak primarily now)
     const i=setInterval(()=>{
         const today = new Date().toDateString();
         const yesterday = new Date(Date.now() - 86400000).toDateString();
         
+        // Reset Daily Stats if day changed (redundant check, but safe)
         if(lastDate !== today) {
             setDailyDone(false);
             setDailyStats(DEFAULT_DAILY_STATS);
             store.set(STORAGE_KEYS.DAILY_STATS,DEFAULT_DAILY_STATS);
-            setLastDate(today);
+            setLastDate(today); // Update lastDate state as well
+            store.set(STORAGE_KEYS.LAST_DATE, today); // Persist update
         }
 
+        // Reset Streak if needed
         const lastStreakDay = store.get(STORAGE_KEYS.LAST_STREAK_DATE);
         if (lastStreakDay && lastStreakDay !== today && lastStreakDay !== yesterday) {
+            console.log("Streak reset due to missed day.");
             setStreak(0);
             store.set(STORAGE_KEYS.STREAK, 0);
+            // We keep LAST_STREAK_DATE to show the "Streak Lost" message until a new one starts
         }
-    }, 60000);
+    }, 60000); // Check every minute
     return ()=>clearInterval(i);
-  }, [lastDate]);
+  }, [lastDate]); // Depend on lastDate
 
   // --- Helpers ---
+  // ... (showConfirm, showAlert, getPromptText, isToday, createItem, toggleNotif remain the same) ...
   const showConfirm=(t,m,c)=>setModal({type:'confirm',title:t,message:m,onConfirm:c});
   const showAlert=(t,m)=>setModal({type:'alert',title:t,message:m}); // Added showAlert helper
   const getPromptText=(p,h=settings.placeholder)=>(p.rawText||p.text).replace(/{PLACEHOLDER}/g,h);
   const isToday=d=>new Date(d).toDateString()===new Date().toDateString();
   const createItem=(p,t)=>{const ts=new Date().toISOString();return{id:Date.now()+Math.random(),text:t.trim(),...(p==='prompts'&&{rawText:t.trim().replace(new RegExp(settings.placeholder,'g'),'{PLACEHOLDER}')}),created:ts,modified:ts,starred:false}};
   const toggleNotif=async()=>{if(!settings.notificationsEnabled){if('Notification'in window){const p=await Notification.requestPermission();if(p==='granted'){setSettings(pr=>({...pr,notificationsEnabled:true}));store.set(STORAGE_KEYS.LAST_NOTIF,Date.now())}}else{alert("Notifications not supported.")}}else{setSettings(pr=>({...pr,notificationsEnabled:false}))}};
+
 
   const handleSaveManualItem = () => {
     const { pile, text } = manualAddItem;
@@ -327,6 +374,7 @@ const VideoIdeasApp = () => {
   };
 
   // --- Task Engine ---
+  // ... (generateTask remains the same) ...
   const generateTask = useCallback(() => {
     const parseTemplate = (text, pile) => {
       const inputs = {};
@@ -348,8 +396,10 @@ const VideoIdeasApp = () => {
         const isPossible = Object.entries(t.inputs).every(([inputPile, count]) => {
           const pileName = `${inputPile}s`;
           if (inputPile === 'prompt') {
+            // Ensure there are enough concepts for *at least one* suitable prompt
             return data.prompts.some(p => (getPromptText(p).match(new RegExp(settings.placeholder, 'gi')) || []).length <= data.concepts.length);
           }
+          // Ensure enough items exist in the required pile
           return data[pileName] && data[pileName].length >= count;
         });
         if (isPossible) possibleTasks[pile].push(t);
@@ -358,38 +408,58 @@ const VideoIdeasApp = () => {
 
     const availableCats = Object.keys(possibleTasks).filter(cat => possibleTasks[cat].length > 0);
     if (availableCats.length === 0) {
-      const fallbackTemplate = parseTemplate(TASKS.concepts[0], "concepts");
+      // Fallback if no tasks are possible (e.g., no concepts/prompts/ideas exist yet)
+      const fallbackTemplate = parseTemplate(TASKS.concepts[0], "concepts"); // Default to "Write N concepts"
       const [min, max] = settings.taskRanges.concepts;
       fallbackTemplate.count = Math.floor(Math.random() * (max - min + 1)) + min;
-      fallbackTemplate.selections = {};
+      fallbackTemplate.selections = {}; // No selections needed
       return fallbackTemplate;
     }
     
+    // Choose a random category from the available ones
     const category = availableCats[Math.floor(Math.random() * availableCats.length)];
+    // Choose a random template from that category
     const template = possibleTasks[category][Math.floor(Math.random() * possibleTasks[category].length)];
 
+    // Determine the number of items for the task
     const [min, max] = settings.taskRanges[template.pile];
     const count = Math.floor(Math.random() * (max - min + 1)) + min;
-    const selections = { concepts: [], prompts: [], ideas: [] };
     
-    let conceptsToUse = [...data.concepts].sort(() => 0.5 - Math.random());
+    // Prepare selections based on the template's inputs
+    const selections = { concepts: [], prompts: [], ideas: [] };
+    let conceptsToUse = [...data.concepts].sort(() => 0.5 - Math.random()); // Shuffle concepts
 
+    // Handle prompt selection specifically to ensure enough concepts
     if (template.inputs.prompt) {
+      // Filter prompts that require more concepts than available *overall*
       const availablePrompts = data.prompts.filter(p => (getPromptText(p).match(new RegExp(settings.placeholder, 'gi')) || []).length <= conceptsToUse.length);
+      
+      // If no suitable prompts found after filtering, this task shouldn't have been selected (theoretically), 
+      // but handle defensively - maybe regenerate or fallback? For now, we assume one was found.
       const selectedPrompt = availablePrompts[Math.floor(Math.random() * availablePrompts.length)];
       selections.prompts.push(selectedPrompt);
       
+      // Reserve concepts needed specifically for this prompt
       const conceptsForPromptCount = (getPromptText(selectedPrompt).match(new RegExp(settings.placeholder, 'gi')) || []).length;
       if (conceptsForPromptCount > 0) {
         selections.concepts.push(...conceptsToUse.splice(0, conceptsForPromptCount));
       }
     }
-    if (template.inputs.concept) selections.concepts.push(...conceptsToUse.splice(0, template.inputs.concept));
-    if (template.inputs.idea) selections.ideas.push(...[...data.ideas].sort(() => 0.5 - Math.random()).slice(0, template.inputs.idea));
-    if (template.text.includes('<random_word>')) selections.randomWord = WORD_LIST[Math.floor(Math.random() * WORD_LIST.length)];
+    // Select remaining concepts if needed by the template (e.g., <concept> AND <concept>)
+    if (template.inputs.concept) {
+       selections.concepts.push(...conceptsToUse.splice(0, template.inputs.concept));
+    }
+    // Select ideas if needed
+    if (template.inputs.idea) {
+       selections.ideas.push(...[...data.ideas].sort(() => 0.5 - Math.random()).slice(0, template.inputs.idea));
+    }
+    // Select a random word if needed
+    if (template.text.includes('<random_word>')) {
+       selections.randomWord = WORD_LIST[Math.floor(Math.random() * WORD_LIST.length)];
+    }
     
     return { ...template, count, selections };
-  }, [data, settings]);
+  }, [data, settings]); // Dependencies
 
 
   const startTask = useCallback((isDaily = false) => {
@@ -590,6 +660,7 @@ const VideoIdeasApp = () => {
             display: flex;
             animation: scroll 60s linear infinite;
             width: fit-content;
+            white-space: nowrap; /* Prevent items from wrapping */
         }
         @keyframes scroll {
             from { transform: translateX(0); }
