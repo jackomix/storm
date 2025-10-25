@@ -5,7 +5,6 @@ import { Plus, Trash2, Edit2, Star, Download, X, Check, Sparkles, Zap, Settings,
 // <script src="https://cdn.jsdelivr.net/npm/party-js@latest/bundle/party.min.js"></script>
 
 // --- 1. Centralized Constants & Config ---
-// ... (Pile Config, Storage Keys, Tasks, etc. remain the same) ...
 const PILE_CONFIG = {
   concepts: { name: 'Concepts', icon: List, classes: { text: 'text-red-600', border: 'hover:border-red-400', bg: 'bg-red-50', borderInner: 'border-red-200' } },
   prompts: { name: 'Prompts', icon: LayoutList, classes: { text: 'text-blue-600', border: 'hover:border-blue-400', bg: 'bg-blue-50', borderInner: 'border-blue-200' } },
@@ -34,6 +33,12 @@ const WORD_LIST = ["Technology", "Creativity", "Future", "History", "Science", "
 const DEFAULT_SETTINGS = { notificationsEnabled: false, placeholder: 'XX', taskRanges: { concepts: [5, 8], prompts: [2, 5], ideas: [2, 6] } };
 const DEFAULT_DAILY_STATS = { concepts: 0, prompts: 0, ideas: 0, tasks: 0 };
 const INITIAL_DATA = { concepts: [], prompts: [], ideas: [] };
+const INTERNAL_PLACEHOLDER = '{PLACEHOLDER}'; // Consistent internal representation
+
+// --- App Version (from Vite config) ---
+// Ensure this works even if __APP_VERSION__ is not defined during development
+const APP_VERSION = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'dev';
+
 
 // --- 2. Storage Utility ---
 const store = {
@@ -55,7 +60,20 @@ const Button = React.forwardRef(({variant='default',children,className='',...pro
 });
 
 const IconButton=({children,className='',...props})=><button className={`p-2 bg-zinc-200 text-zinc-600 rounded-lg hover:bg-zinc-300 transition-colors ${className}`} {...props}>{children}</button>;
-const StatCard=({pileKey,count,dailyCount,onClick})=>{const config=PILE_CONFIG[pileKey];return(<button onClick={onClick} className={`bg-white p-4 rounded-xl border border-zinc-200 ${config.classes.border} hover:shadow-lg transition-all text-center group transform hover:-translate-y-0.5`}><h3 className="text-sm font-medium text-zinc-600 mb-1 flex items-center justify-center gap-1"><config.icon size={16} className={config.classes.text}/> {config.name}</h3><p className={`text-3xl font-serif ${config.classes.text} group-hover:scale-105 transition-transform font-bold`}>{count}</p>{dailyCount>0&&<p className={`text-xs ${config.classes.text} mt-2 animate-pulse`}>+{dailyCount} today</p>}</button>)};
+
+const StatCard=({pileKey,count,dailyCount,onClick})=>{
+    const config=PILE_CONFIG[pileKey];
+    return(
+        <button onClick={onClick} className={`bg-white p-4 rounded-xl border border-zinc-200 ${config.classes.border} hover:shadow-lg transition-all text-center group transform hover:-translate-y-0.5`}>
+            <h3 className="text-sm font-medium text-zinc-600 mb-1 flex items-center justify-center gap-1"><config.icon size={16} className={config.classes.text}/> {config.name}</h3>
+            <p className={`text-3xl font-serif ${config.classes.text} group-hover:scale-105 transition-transform font-bold`}>{count}</p>
+            {/* Added min-height to prevent layout shift */}
+            <div className="min-h-[1.25rem] mt-2"> 
+              {dailyCount > 0 && <p className={`text-xs ${config.classes.text} animate-pulse`}>+{dailyCount} today</p>}
+            </div>
+        </button>
+    )
+};
 
 const Modal = ({ title, message, type, onConfirm, onCancel }) => {
     const confirmButtonRef = useRef(null);
@@ -107,28 +125,40 @@ const AnimatedProgressBar = React.memo(({ percentage }) => {
     );
 });
 
-const Marquee = ({ items, getPromptText }) => {
+// Helper component for dashed placeholder display
+const DashedPlaceholder = () => (
+    <span className="inline-block align-middle w-10 h-5 border-2 border-dashed border-purple-400 rounded mx-1"></span>
+);
+
+const Marquee = ({ items }) => { // Removed getPromptText prop
+    // Helper to render placeholder visually in Marquee
+    const renderPromptWithPlaceholder = (item) => {
+        const text = item.rawText || item.text; // Use rawText for internal placeholder
+        const parts = text.split(INTERNAL_PLACEHOLDER);
+        return parts.map((part, index) => (
+            <React.Fragment key={index}>
+                {part}
+                {index < parts.length - 1 && <DashedPlaceholder />}
+            </React.Fragment>
+        ));
+    };
+
     const StyledMarqueeItem = ({ item, pile }) => {
         const config = PILE_CONFIG[pile];
         if (!config) return null;
 
-        let textContent = item.text;
-        if (pile === 'prompts') {
-            textContent = getPromptText(item, DEFAULT_SETTINGS.placeholder)
-                .replace(new RegExp(DEFAULT_SETTINGS.placeholder, 'g'), `<span class="font-bold text-purple-700">${DEFAULT_SETTINGS.placeholder}</span>`);
-        }
-
         return (
             <div className={`inline-flex items-center ${config.classes.bg} border ${config.classes.borderInner} px-3 py-1 rounded-full text-sm mx-2 flex-shrink-0`}>
                 <config.icon size={14} className={`${config.classes.text} mr-2`} />
-                <p className="text-zinc-800 truncate max-w-[200px]" dangerouslySetInnerHTML={{ __html: textContent }} />
+                <p className="text-zinc-800 truncate max-w-[200px]">
+                    {pile === 'prompts' ? renderPromptWithPlaceholder(item) : item.text}
+                </p>
             </div>
         );
     };
 
     if (!items || items.length === 0) return null;
 
-    // Shuffle and take a subset for performance if needed, or just shuffle
     const shuffledItems = useMemo(() => [...items].sort(() => 0.5 - Math.random()), [items]);
     const marqueeItems = [...shuffledItems, ...shuffledItems]; // Duplicate for seamless scroll
 
@@ -142,6 +172,7 @@ const Marquee = ({ items, getPromptText }) => {
         </div>
     );
 };
+
 
 // --- Main App Component ---
 const VideoIdeasApp = () => {
@@ -209,33 +240,31 @@ const VideoIdeasApp = () => {
     }
 
     // --- PWA Launch Logic ---
-    // Check if there is a saved task. If NOT, ensure view is 'home'.
-    // If there IS a saved task, it might be from a previous session.
-    // We let the 'pagehide' listener handle clearing it for *next* launch.
-    // For *this* launch, if we find a task, we load it, BUT this might be changed later if desired.
-    const savedTask = store.get(STORAGE_KEYS.CURRENT_TASK);
-    if (savedTask) {
-        setTask(savedTask);
-        setTaskItems(savedTask.items || []);
-        setView('task'); // Go to task if found
-    } else {
-        setView('home'); // Ensure home if no task saved
-    }
+    // Always start on the home screen when the app loads fresh
+    setView('home'); 
+    store.remove(STORAGE_KEYS.CURRENT_TASK); // Clear any lingering task state
+    setTask(null);
+    setTaskItems([]);
+
 
     // --- Event listener to clear task on session end ---
     const handleSessionEnd = () => {
-        // Clear the saved task when the page is hidden/closed
-        console.log("Page hidden/closed, clearing current task state.");
-        store.remove(STORAGE_KEYS.CURRENT_TASK);
+        // Only save task state if there is an active task
+        if (taskRef.current) { // Use ref to get current task state
+           console.log("Page hidden/closed, saving current task state.");
+           store.set(STORAGE_KEYS.CURRENT_TASK, { ...taskRef.current, items: taskItemsRef.current }); // Use refs
+        } else {
+            // If no task is active when hidden, ensure it's cleared
+             console.log("Page hidden/closed, no active task to save.");
+            store.remove(STORAGE_KEYS.CURRENT_TASK);
+        }
     };
     
-    // Use 'visibilitychange' as 'pagehide' might not fire reliably on mobile PWAs when closed
     document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'hidden') {
             handleSessionEnd();
         }
     });
-    // Add pagehide as a backup, though visibilitychange is often better for PWAs
     window.addEventListener('pagehide', handleSessionEnd);
 
 
@@ -246,6 +275,13 @@ const VideoIdeasApp = () => {
        window.removeEventListener('pagehide', handleSessionEnd);
     };
   }, []); // Run only once on mount
+    
+  // Refs to keep track of latest task state for session end handler
+  const taskRef = useRef(task);
+  const taskItemsRef = useRef(taskItems);
+  useEffect(() => { taskRef.current = task; }, [task]);
+  useEffect(() => { taskItemsRef.current = taskItems; }, [taskItems]);
+
 
   useEffect(() => { // Daily Reset Interval (for streak primarily now)
     const i=setInterval(()=>{
@@ -274,14 +310,17 @@ const VideoIdeasApp = () => {
   }, [lastDate]); // Depend on lastDate
 
   // --- Helpers ---
-  // ... (showConfirm, showAlert, getPromptText, isToday, createItem, toggleNotif remain the same) ...
   const showConfirm=(t,m,c)=>setModal({type:'confirm',title:t,message:m,onConfirm:c});
   const showAlert=(t,m)=>setModal({type:'alert',title:t,message:m}); // Added showAlert helper
-  const getPromptText=(p,h=settings.placeholder)=>(p.rawText||p.text).replace(/{PLACEHOLDER}/g,h);
+  
+  // Modified getPromptText to use INTERNAL_PLACEHOLDER internally
+  const getPromptTextInternal=(p)=>(p.rawText||p.text);
+  // Function to display prompt text with user's placeholder
+  const getPromptTextForDisplay=(p,h=settings.placeholder)=>getPromptTextInternal(p).replace(new RegExp(INTERNAL_PLACEHOLDER,'g'),h);
+  
   const isToday=d=>new Date(d).toDateString()===new Date().toDateString();
-  const createItem=(p,t)=>{const ts=new Date().toISOString();return{id:Date.now()+Math.random(),text:t.trim(),...(p==='prompts'&&{rawText:t.trim().replace(new RegExp(settings.placeholder,'g'),'{PLACEHOLDER}')}),created:ts,modified:ts,starred:false}};
+  const createItem=(p,t)=>{const ts=new Date().toISOString();return{id:Date.now()+Math.random(),text:t.trim(),...(p==='prompts'&&{rawText:t.trim().replace(new RegExp(settings.placeholder,'g'),INTERNAL_PLACEHOLDER)}),created:ts,modified:ts,starred:false}};
   const toggleNotif=async()=>{if(!settings.notificationsEnabled){if('Notification'in window){const p=await Notification.requestPermission();if(p==='granted'){setSettings(pr=>({...pr,notificationsEnabled:true}));store.set(STORAGE_KEYS.LAST_NOTIF,Date.now())}}else{alert("Notifications not supported.")}}else{setSettings(pr=>({...pr,notificationsEnabled:false}))}};
-
 
   const handleSaveManualItem = () => {
     const { pile, text } = manualAddItem;
@@ -397,7 +436,7 @@ const VideoIdeasApp = () => {
           const pileName = `${inputPile}s`;
           if (inputPile === 'prompt') {
             // Ensure there are enough concepts for *at least one* suitable prompt
-            return data.prompts.some(p => (getPromptText(p).match(new RegExp(settings.placeholder, 'gi')) || []).length <= data.concepts.length);
+            return data.prompts.some(p => (getPromptTextInternal(p).match(new RegExp(INTERNAL_PLACEHOLDER, 'gi')) || []).length <= data.concepts.length);
           }
           // Ensure enough items exist in the required pile
           return data[pileName] && data[pileName].length >= count;
@@ -432,7 +471,7 @@ const VideoIdeasApp = () => {
     // Handle prompt selection specifically to ensure enough concepts
     if (template.inputs.prompt) {
       // Filter prompts that require more concepts than available *overall*
-      const availablePrompts = data.prompts.filter(p => (getPromptText(p).match(new RegExp(settings.placeholder, 'gi')) || []).length <= conceptsToUse.length);
+      const availablePrompts = data.prompts.filter(p => (getPromptTextInternal(p).match(new RegExp(INTERNAL_PLACEHOLDER, 'gi')) || []).length <= conceptsToUse.length);
       
       // If no suitable prompts found after filtering, this task shouldn't have been selected (theoretically), 
       // but handle defensively - maybe regenerate or fallback? For now, we assume one was found.
@@ -440,7 +479,7 @@ const VideoIdeasApp = () => {
       selections.prompts.push(selectedPrompt);
       
       // Reserve concepts needed specifically for this prompt
-      const conceptsForPromptCount = (getPromptText(selectedPrompt).match(new RegExp(settings.placeholder, 'gi')) || []).length;
+      const conceptsForPromptCount = (getPromptTextInternal(selectedPrompt).match(new RegExp(INTERNAL_PLACEHOLDER, 'gi')) || []).length;
       if (conceptsForPromptCount > 0) {
         selections.concepts.push(...conceptsToUse.splice(0, conceptsForPromptCount));
       }
@@ -554,7 +593,7 @@ const VideoIdeasApp = () => {
             setEditing={setEditing}
             setData={setData}
             showConfirm={showConfirm}
-            getPromptText={getPromptText}
+            getPromptTextForDisplay={getPromptTextForDisplay} // Pass display version
             settings={settings}
             isToday={isToday}
         />
@@ -567,7 +606,7 @@ const VideoIdeasApp = () => {
         dailyDone={dailyDone}
         startTask={startTask}
         streak={streak}
-        getPromptText={getPromptText}
+        getPromptTextForDisplay={getPromptTextForDisplay} // Pass display version
     />;
   };
 
@@ -673,7 +712,7 @@ const VideoIdeasApp = () => {
 };
 
 // --- View Components (Extracted) ---
-const HomeView = ({ data, dailyStats, setView, dailyDone, startTask, streak, getPromptText }) => {
+const HomeView = ({ data, dailyStats, setView, dailyDone, startTask, streak, getPromptTextForDisplay }) => { // Changed prop name
     
     const marqueeItems = useMemo(() => {
         const allItems = [
@@ -756,7 +795,7 @@ const HomeView = ({ data, dailyStats, setView, dailyDone, startTask, streak, get
     return (
         <div className="p-6 max-w-3xl mx-auto">
           {getStreakDisplay()}
-          {marqueeItems.length > 0 && <Marquee items={marqueeItems} getPromptText={getPromptText} />}
+          {marqueeItems.length > 0 && <Marquee items={marqueeItems} getPromptText={getPromptTextForDisplay} />} 
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
             <StatCard pileKey="concepts" count={data.concepts.length} dailyCount={dailyStats.concepts} onClick={()=>setView('concepts')}/>
             <StatCard pileKey="prompts" count={data.prompts.length} dailyCount={dailyStats.prompts} onClick={()=>setView('prompts')}/>
@@ -832,11 +871,35 @@ const TaskView = ({ task, taskItems, settings, data, taskInput, setTaskInput, se
     );
 };
   
-const PileManager=({pile,items,view,sortBy,setSortBy,setManualAddItem,editing,setEditing,setData,showConfirm,getPromptText,settings,isToday})=>{
+const PileManager=({pile,items,view,sortBy,setSortBy,setManualAddItem,editing,setEditing,setData,showConfirm,getPromptTextForDisplay,settings,isToday})=>{ // Changed prop name
     const config=PILE_CONFIG[pile==='ideas'&&view==='starred'?'starred':pile];
     const showStar=pile==='ideas';
-    const saveEdit=()=>{if(!editing||!editing.text.trim())return setEditing(null);const{item,text}=editing;const modifiedItem={...item,text:text.trim(),modified:new Date().toISOString()};if(pile==='prompts')modifiedItem.rawText=text.trim().replace(new RegExp(settings.placeholder,'g'),'{PLACEHOLDER}');setData(prev=>({...prev,[pile]:prev[pile].map(i=>i.id===item.id?modifiedItem:i)}));setEditing(null)};
-    const exportPile=()=>{const text=items.map(i=>pile==='prompts'?getPromptText(i):i.text).join('\n');const blob=new Blob([text],{type:'text/plain'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=`${config.name.replace(' ','-').toLowerCase()}-${new Date().toISOString().split('T')[0]}.txt`;document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url)};
+    const saveEdit=()=>{
+        if(!editing||!editing.text.trim())return setEditing(null);
+        const{item,text}=editing;
+        const modifiedItem={...item,text:text.trim(),modified:new Date().toISOString()};
+        // Use createItem logic to handle placeholder conversion correctly
+        if(pile==='prompts') {
+            const tempItem = createItem('prompts', text.trim());
+            modifiedItem.rawText = tempItem.rawText;
+        }
+        setData(prev=>({...prev,[pile]:prev[pile].map(i=>i.id===item.id?modifiedItem:i)}));
+        setEditing(null)
+    };
+    const exportPile=()=>{const text=items.map(i=>pile==='prompts'?getPromptTextForDisplay(i):i.text).join('\n');const blob=new Blob([text],{type:'text/plain'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=`${config.name.replace(' ','-').toLowerCase()}-${new Date().toISOString().split('T')[0]}.txt`;document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url)};
+    
+    // Helper to render placeholder visually in PileManager list
+    const renderPromptWithPlaceholder = (item) => {
+        const text = item.rawText || item.text; // Use rawText for internal placeholder
+        const parts = text.split(INTERNAL_PLACEHOLDER);
+        return parts.map((part, index) => (
+            <React.Fragment key={index}>
+                {part}
+                {index < parts.length - 1 && <DashedPlaceholder />} 
+            </React.Fragment>
+        ));
+    };
+
     return(
     <div className="p-4">
         {/* Responsive Header */}
@@ -857,6 +920,7 @@ const PileManager=({pile,items,view,sortBy,setSortBy,setManualAddItem,editing,se
                 <div key={item.id} className={`bg-white p-4 rounded-lg border shadow-sm ${isToday(item.created)?'border-amber-400 bg-amber-50/30':'border-zinc-200'}`}>
                     {editing?.item.id===item.id?(
                         <div className="flex flex-col gap-2">
+                             {/* Edit input: Convert internal placeholder back to user's placeholder */}
                             <input type="text" value={editing.text} onChange={e=>setEditing({...editing,text:e.target.value})} onKeyPress={e=>e.key==='Enter'&&saveEdit()} className="flex-1 p-3 border border-zinc-300 rounded-lg" autoFocus/>
                             <div className='flex justify-end gap-2'>
                                 <Button variant="success" onClick={saveEdit}><Check size={18}/> Save</Button>
@@ -865,11 +929,15 @@ const PileManager=({pile,items,view,sortBy,setSortBy,setManualAddItem,editing,se
                         </div>
                     ):(<>
                         <div className="flex justify-between items-start mb-2">
-                            <p className="flex-1 text-zinc-700 break-words pr-4" dangerouslySetInnerHTML={{__html:pile==='prompts'?getPromptText(item,settings.placeholder).replace(new RegExp(settings.placeholder,'g'),`<span class="inline-block bg-purple-100 text-purple-700 px-1 rounded-sm font-mono text-sm">${settings.placeholder}</span>`):item.text}}/>
+                            {/* Display logic: Use renderPromptWithPlaceholder for prompts */}
+                            <p className="flex-1 text-zinc-700 break-words pr-4">
+                                {pile === 'prompts' ? renderPromptWithPlaceholder(item) : item.text}
+                            </p>
                             {/* Responsive Buttons */}
                             <div className="flex gap-2 sm:gap-1 flex-shrink-0">
                                 {showStar&&<button onClick={()=>setData(p=>({...p,ideas:p.ideas.map(i=>i.id===item.id?{...i,starred:!i.starred,modified:new Date().toISOString()}:i)}))} className={`${item.starred?'text-amber-500':'text-zinc-300 hover:text-amber-400'} p-2 sm:p-1`}><Star size={18} fill={item.starred?'currentColor':'none'}/></button>}
-                                <button onClick={()=>setEditing({item,text:pile==='prompts'?getPromptText(item,settings.placeholder):item.text})} className="text-blue-500 hover:text-blue-600 p-2 sm:p-1"><Edit2 size={18}/></button>
+                                {/* Edit button: Convert internal to user's placeholder for editing */}
+                                <button onClick={()=>setEditing({item,text:pile==='prompts'?getPromptTextForDisplay(item,settings.placeholder):item.text})} className="text-blue-500 hover:text-blue-600 p-2 sm:p-1"><Edit2 size={18}/></button>
                                 <button onClick={()=>showConfirm('Delete Item?','This is permanent.',()=>setData(prev=>({...prev,[pile]:prev[pile].filter(i=>i.id!==item.id)})))} className="text-red-500 hover:text-red-600 p-2 sm:p-1"><Trash2 size={18}/></button>
                             </div>
                         </div>
@@ -905,7 +973,7 @@ const SettingsView=({setView, settings,setSettings,toggleNotif, backupData, trig
             <div className="mb-4 bg-zinc-50 p-3 rounded-lg border">
                 <label className="block mb-2 text-sm font-medium text-zinc-700">Prompt Placeholder Text</label>
                 <input type="text" value={settings.placeholder} onChange={e=>setSettings(prev=>({...prev,placeholder:e.target.value.toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,5)}))} className="w-full p-2 border rounded-lg font-mono text-center text-lg focus:outline-none focus:ring-2 focus:ring-purple-500" maxLength={5}/>
-                <p className="text-xs text-zinc-500 mt-1">Max 5 chars, alphanumeric. Used in prompts.</p>
+                <p className="text-xs text-zinc-500 mt-1">Max 5 chars, alphanumeric. Used when typing prompts.</p>
             </div>
             <div className="mb-4 bg-zinc-50 p-3 rounded-lg border">
                 <label className="block mb-2 text-sm font-medium text-zinc-700">Daily Task Ranges (Min - Max)</label>
@@ -930,6 +998,8 @@ const SettingsView=({setView, settings,setSettings,toggleNotif, backupData, trig
                      <p className="text-xs text-zinc-500 mt-1 text-center">Warning: This will permanently delete everything.</p>
                  </div>
             </div>
+             {/* Version Info */}
+             <p className="text-center text-xs text-zinc-400 mt-6">Version: {APP_VERSION}</p>
         </div>
     </div>
     )
@@ -955,17 +1025,21 @@ const TaskInstructions = React.memo(({ task, taskItems }) => {
     };
 
     const StyledPrompt = ({ prompt, concepts }) => {
-        const promptText = getPromptText(prompt);
-        const parts = promptText.split(new RegExp(`(${DEFAULT_SETTINGS.placeholder})`, 'gi'));
+        const promptText = getPromptTextInternal(prompt); // Use internal representation
+        const parts = promptText.split(INTERNAL_PLACEHOLDER);
         let conceptIndex = 0;
         return (
             <span className={`inline-block align-middle ${PILE_CONFIG.prompts.classes.bg} border ${PILE_CONFIG.prompts.classes.borderInner} px-2 py-1 rounded text-lg mx-1`}>
-                {parts.map((part, i) => {
-                    if (part.toUpperCase() === DEFAULT_SETTINGS.placeholder.toUpperCase() && conceptIndex < concepts.length) {
-                        return <StyledItem key={i} item={concepts[conceptIndex++]} pile="concepts" />;
-                    }
-                    return <span key={i}>{part}</span>;
-                })}
+                {parts.map((part, i) => (
+                    <React.Fragment key={i}>
+                        {part}
+                        {i < parts.length - 1 && conceptIndex < concepts.length && (
+                            <StyledItem item={concepts[conceptIndex++]} pile="concepts" />
+                        )}
+                        {/* Render placeholder visually if not enough concepts (edge case) */}
+                        {i < parts.length - 1 && conceptIndex >= concepts.length && <DashedPlaceholder />}
+                    </React.Fragment>
+                ))}
             </span>
         );
     };
@@ -990,7 +1064,7 @@ const TaskInstructions = React.memo(({ task, taskItems }) => {
                       if (part === '<idea>') return <StyledItem key={i} item={itemQueues.idea.shift()} pile="ideas" />;
                       if (part === '<prompt>') {
                           const prompt = itemQueues.prompt.shift();
-                          const conceptsForPromptCount = (getPromptText(prompt).match(new RegExp(DEFAULT_SETTINGS.placeholder, 'gi')) || []).length;
+                          const conceptsForPromptCount = (getPromptTextInternal(prompt).match(new RegExp(INTERNAL_PLACEHOLDER, 'gi')) || []).length;
                           // Use the concepts specifically selected for this task, if available
                           const concepts = task.selections?.concepts?.slice(0, conceptsForPromptCount) || [];
                           return <StyledPrompt key={i} prompt={prompt} concepts={concepts} />;
