@@ -64,22 +64,25 @@ const StatCard = ({ pileKey, count, dailyCount, onClick }) => {
     return (
         <button
             onClick={onClick}
-            className={`bg-white p-4 rounded-xl border border-zinc-200 ${config.classes.border} hover:shadow-lg transition-all text-center group transform hover:-translate-y-0.5 flex flex-col justify-center`} // Changed justify-between to justify-center
+            // Ensure flex column, centered items, and text-center for all content within
+            className={`bg-white p-4 rounded-xl border border-zinc-200 ${config.classes.border} hover:shadow-lg transition-all text-center group transform hover:-translate-y-0.5 flex flex-col items-center justify-center`}
         >
-            <div> {/* Wrapper remains for grouping */}
+            {/* Wrapper for consistent structure */}
+            <div className="flex flex-col items-center justify-center">
                 <h3 className="text-sm font-medium text-zinc-600 mb-1 flex items-center justify-center gap-1">
                     <config.icon size={16} className={config.classes.text} /> {config.name}
                 </h3>
-                <p className={`text-3xl font-serif ${config.classes.text} group-hover:scale-105 transition-transform font-bold`}> {/* Removed conditional padding */}
+                <p className={`text-3xl font-serif ${config.classes.text} group-hover:scale-105 transition-transform font-bold`}>
                     {count}
                 </p>
             </div>
-             {/* Removed min-height, placeholder logic remains for spacing */}
-            <div className="mt-2">
+            {/* Container for the "+N today" text or placeholder */}
+            <div className="mt-2 h-[1.25rem] flex items-center justify-center"> {/* Fixed height container */}
                 {dailyCount > 0 ? (
                     <p className={`text-xs ${config.classes.text} animate-pulse`}>+{dailyCount} today</p>
                 ) : (
-                    <p className="text-xs invisible h-[1em]">placeholder</p> // Ensure placeholder takes up vertical space like text
+                    // No need for invisible placeholder if parent has fixed height
+                    null
                 )}
             </div>
         </button>
@@ -661,8 +664,9 @@ const VideoIdeasApp = () => {
           <IconButton 
             onClick={() => setView('settings')} 
             title="Settings" 
-            className="fixed bottom-4 right-4 sm:bottom-6 sm:right-6 !bg-zinc-800 !text-white hover:!bg-zinc-700 shadow-lg">
-                <Settings size={20} />
+            // Increased padding for larger button
+            className="fixed bottom-4 right-4 sm:bottom-6 sm:right-6 !p-3 !bg-zinc-800 !text-white hover:!bg-zinc-700 shadow-lg">
+                <Settings size={24} /> {/* Slightly larger icon */}
           </IconButton>
       )}
       <style>{`
