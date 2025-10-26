@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { Plus, Trash2, Edit2, Star, Download, X, Check, Sparkles, Zap, Settings, Dice6, List, LayoutList, Lightbulb, Flame, Upload, RotateCcw } from 'lucide-react';
+import { Plus, Trash2, Edit2, Star, Download, X, Check, Sparkles, Zap, Settings, Dice6, List, LayoutList, Lightbulb, Flame, Upload, RotateCcw, Bell } from 'lucide-react'; // Added Bell icon
 
 // --- App Requires party-js ---
 // <script src="https://cdn.jsdelivr.net/npm/party-js@latest/bundle/party.min.js"></script>
@@ -36,9 +36,7 @@ const INITIAL_DATA = { concepts: [], prompts: [], ideas: [] };
 const INTERNAL_PLACEHOLDER = '{PLACEHOLDER}'; // Consistent internal representation
 
 // --- App Version (from Vite config) ---
-// Ensure this works even if __APP_VERSION__ is not defined during development
 const APP_VERSION = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'dev';
-
 
 // --- 2. Storage Utility ---
 const store = {
@@ -61,19 +59,33 @@ const Button = React.forwardRef(({variant='default',children,className='',...pro
 
 const IconButton=({children,className='',...props})=><button className={`p-2 bg-zinc-200 text-zinc-600 rounded-lg hover:bg-zinc-300 transition-colors ${className}`} {...props}>{children}</button>;
 
-const StatCard=({pileKey,count,dailyCount,onClick})=>{
-    const config=PILE_CONFIG[pileKey];
-    return(
-        <button onClick={onClick} className={`bg-white p-4 rounded-xl border border-zinc-200 ${config.classes.border} hover:shadow-lg transition-all text-center group transform hover:-translate-y-0.5`}>
-            <h3 className="text-sm font-medium text-zinc-600 mb-1 flex items-center justify-center gap-1"><config.icon size={16} className={config.classes.text}/> {config.name}</h3>
-            <p className={`text-3xl font-serif ${config.classes.text} group-hover:scale-105 transition-transform font-bold`}>{count}</p>
-            {/* Added min-height to prevent layout shift */}
-            <div className="min-h-[1.25rem] mt-2"> 
-              {dailyCount > 0 && <p className={`text-xs ${config.classes.text} animate-pulse`}>+{dailyCount} today</p>}
+const StatCard = ({ pileKey, count, dailyCount, onClick }) => {
+    const config = PILE_CONFIG[pileKey];
+    return (
+        <button
+            onClick={onClick}
+            className={`bg-white p-4 rounded-xl border border-zinc-200 ${config.classes.border} hover:shadow-lg transition-all text-center group transform hover:-translate-y-0.5 flex flex-col justify-center`} // Changed justify-between to justify-center
+        >
+            <div> {/* Wrapper remains for grouping */}
+                <h3 className="text-sm font-medium text-zinc-600 mb-1 flex items-center justify-center gap-1">
+                    <config.icon size={16} className={config.classes.text} /> {config.name}
+                </h3>
+                <p className={`text-3xl font-serif ${config.classes.text} group-hover:scale-105 transition-transform font-bold`}> {/* Removed conditional padding */}
+                    {count}
+                </p>
+            </div>
+             {/* Removed min-height, placeholder logic remains for spacing */}
+            <div className="mt-2">
+                {dailyCount > 0 ? (
+                    <p className={`text-xs ${config.classes.text} animate-pulse`}>+{dailyCount} today</p>
+                ) : (
+                    <p className="text-xs invisible h-[1em]">placeholder</p> // Ensure placeholder takes up vertical space like text
+                )}
             </div>
         </button>
-    )
+    );
 };
+
 
 const Modal = ({ title, message, type, onConfirm, onCancel }) => {
     const confirmButtonRef = useRef(null);
@@ -85,7 +97,7 @@ const Modal = ({ title, message, type, onConfirm, onCancel }) => {
     }, []);
 
     return (
-      // Use a high z-index to appear above everything, including potential future overlays
+      // Use a high z-index to appear above everything
       <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={onCancel}>
         <div className="bg-white p-6 rounded-lg max-w-sm w-full m-4 shadow-xl" onClick={e => e.stopPropagation()}>
           <h3 className="text-xl font-serif mb-3 text-zinc-800">{title}</h3>
@@ -575,6 +587,7 @@ const VideoIdeasApp = () => {
             backupData={backupData}
             triggerImport={triggerImport}
             resetData={resetData}
+            showAlert={showAlert} // Pass showAlert for test notification
         />;
     }
     if(['concepts','prompts','ideas','starred'].includes(view)){
@@ -714,6 +727,34 @@ const VideoIdeasApp = () => {
 // --- View Components (Extracted) ---
 const HomeView = ({ data, dailyStats, setView, dailyDone, startTask, streak, getPromptTextForDisplay }) => { // Changed prop name
     
+    const [countdown, setCountdown] = useState('');
+
+    useEffect(() => {
+        const updateCountdown = () => {
+            const now = new Date();
+            const tomorrow = new Date(now);
+            tomorrow.setDate(tomorrow.getDate() + 1);
+            tomorrow.setHours(0, 0, 0, 0);
+            const msLeft = tomorrow.getTime() - now.getTime();
+
+            if (msLeft <= 0) {
+                 setCountdown('00:00:00'); // Or handle day change immediately
+                 return;
+            }
+
+            const hours = String(Math.floor((msLeft / (1000 * 60 * 60)) % 24)).padStart(2, '0');
+            const minutes = String(Math.floor((msLeft / (1000 * 60)) % 60)).padStart(2, '0');
+            const seconds = String(Math.floor((msLeft / 1000) % 60)).padStart(2, '0');
+            setCountdown(`${hours}:${minutes}:${seconds}`);
+        };
+
+        updateCountdown(); // Initial calculation
+        const intervalId = setInterval(updateCountdown, 1000); // Update every second
+
+        return () => clearInterval(intervalId); // Cleanup interval on unmount
+    }, []);
+
+
     const marqueeItems = useMemo(() => {
         const allItems = [
             ...data.concepts.map(item => ({ ...item, pile: 'concepts' })),
@@ -739,7 +780,7 @@ const HomeView = ({ data, dailyStats, setView, dailyDone, startTask, streak, get
 
             const getEncouragement = () => {
                 const ratio = milestoneProgress / milestoneTotal;
-                if (ratio >= 1) return "Milestone achieved!"; // Should theoretically not happen with find logic, but good failsafe
+                if (ratio >= 1) return "Milestone achieved!"; 
                 if (ratio > 0.9) return "Almost there!";
                 if (ratio > 0.75) return "So close!";
                 if (ratio > 0.5) return "Over halfway!";
@@ -751,7 +792,9 @@ const HomeView = ({ data, dailyStats, setView, dailyDone, startTask, streak, get
                 <div className="mb-6 flex flex-col items-center justify-center bg-white p-4 rounded-xl border border-amber-300 shadow-md">
                     <span className="text-4xl" style={{filter: `saturate(${1 + streak * 0.1}) drop-shadow(0 0 8px rgba(255,150,0,${Math.min(1, streak/10)}))`, transform: `scale(${1 + streak * 0.02})`}}>🔥</span>
                     <p className="text-2xl font-bold text-amber-600 font-serif">{streak} Day Streak!</p>
-                    <p className="text-sm text-zinc-500 mb-4">Keep it going by completing a daily task.</p>
+                    <p className="text-sm text-zinc-500 mb-2">Keep it going by completing a daily task.</p>
+                    {/* Countdown Timer */}
+                    <p className="text-xs text-zinc-400 font-mono mb-4">Time left today: {countdown}</p>
 
                     <div className="w-full px-2">
                         <div className="relative h-2.5 w-full bg-zinc-200 rounded-full">
@@ -951,7 +994,7 @@ const PileManager=({pile,items,view,sortBy,setSortBy,setManualAddItem,editing,se
     )
 };
   
-const SettingsView=({setView, settings,setSettings,toggleNotif, backupData, triggerImport, resetData})=>{
+const SettingsView=({setView, settings,setSettings,toggleNotif, backupData, triggerImport, resetData, showAlert})=>{ // Added showAlert
     const handleRangeChange=(pile,index,value)=>{
         const newRanges={...settings.taskRanges};
         const currentRange=newRanges[pile];
@@ -960,6 +1003,31 @@ const SettingsView=({setView, settings,setSettings,toggleNotif, backupData, trig
         else{currentRange[1]=Math.min(20,Math.max(numValue,currentRange[0]))}
         setSettings(prev=>({...prev,taskRanges:newRanges}))
     };
+
+    const testNotification = async () => {
+        if (!('Notification' in window)) {
+            return showAlert('Error', 'Notifications not supported by this browser.');
+        }
+        
+        let perm = Notification.permission;
+        if (perm === 'default') {
+            perm = await Notification.requestPermission();
+        }
+
+        if (perm === 'granted') {
+             showAlert('Testing Notification', 'You should see a test notification in 5 seconds...');
+             setTimeout(() => {
+                 new Notification('Test Notification', {
+                     body: 'If you see this, notifications are working!',
+                     icon: '/icon-192.png' // Optional: Use an icon if available
+                 });
+             }, 5000);
+        } else {
+             showAlert('Permission Denied', 'Notification permission was denied. Please check your browser settings.');
+        }
+    };
+
+
     return(
     <div className="p-6 max-w-xl mx-auto">
         <button onClick={()=>setView('home')} className="mb-4 text-blue-600 hover:text-blue-700 flex items-center gap-1 text-base font-medium">← Back to Home</button>
@@ -967,7 +1035,15 @@ const SettingsView=({setView, settings,setSettings,toggleNotif, backupData, trig
             <h2 className="text-2xl font-serif mb-6 border-b pb-3">App Settings</h2>
             {/* General Settings */}
             <div className="mb-4 bg-zinc-50 p-3 rounded-lg border">
-                <label className="flex items-center gap-3 cursor-pointer"><input type="checkbox" checked={settings.notificationsEnabled} onChange={toggleNotif} className="w-5 h-5 text-blue-600 rounded-md focus:ring-blue-500"/><span className='text-zinc-700'>Enable Notifications</span></label>
+                <div className="flex justify-between items-center">
+                    <label className="flex items-center gap-3 cursor-pointer flex-grow">
+                        <input type="checkbox" checked={settings.notificationsEnabled} onChange={toggleNotif} className="w-5 h-5 text-blue-600 rounded-md focus:ring-blue-500"/>
+                        <span className='text-zinc-700'>Enable Notifications</span>
+                    </label>
+                    <Button variant="secondary" onClick={testNotification} disabled={!settings.notificationsEnabled} className="ml-4 !py-1 !px-2 text-xs">
+                       <Bell size={14} /> Test
+                    </Button>
+                </div>
                 <p className="text-xs text-zinc-500 mt-1 pl-8">Reminds you every 2 hours.</p>
             </div>
             <div className="mb-4 bg-zinc-50 p-3 rounded-lg border">

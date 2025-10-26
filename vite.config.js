@@ -13,6 +13,6 @@ export default defineConfig({
   },
   base: '/storm/',
   define: {
-        '__APP_VERSION__': JSON.stringify(process.env.npm_package_version),
+        '__APP_VERSION__': JSON.stringify(new Date().toISOString()),
   }
 })
